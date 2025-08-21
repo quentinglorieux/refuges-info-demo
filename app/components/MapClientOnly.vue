@@ -2,7 +2,7 @@
 import { onMounted, onBeforeUnmount, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 
-// Types facultatifs pour confort
+// Types légers
 type LngLat = [number, number]
 type Feature = {
   type: 'Feature'
@@ -11,9 +11,9 @@ type Feature = {
 }
 
 const props = defineProps<{
-  features?: Feature[]          // ← on vous passe la liste filtrée depuis la page
-  initialCenter?: LngLat        // ex: [45.5, 6.5]
-  initialZoom?: number          // ex: 9
+  features?: Feature[]
+  initialCenter?: LngLat
+  initialZoom?: number
   getColor?: (f: Feature) => string
 }>()
 
@@ -26,33 +26,27 @@ let map: any
 let Lmod: any
 let markersLayer: any
 let canvasRenderer: any
-let lastBboxKey = '' // pour n’émettre que si ça change vraiment
+let lastBboxKey = ''
 
-// ————— utils —————
 function quantize(n: number, decimals = 3) {
-  return Number(n.toFixed(decimals)) // ~110 m pour 3 décimales
+  return Number(n.toFixed(decimals)) // ~110 m
 }
-
 function bboxKeyFromMap() {
   const b = map.getBounds()
   return `${quantize(b.getWest())},${quantize(b.getSouth())},${quantize(b.getEast())},${quantize(b.getNorth())}`
 }
-
 const emitBounds = useDebounceFn(() => {
   if (!map) return
   const key = bboxKeyFromMap()
   if (key === lastBboxKey) return
   lastBboxKey = key
   emit('boundsChanged', key)
-}, 700) // ajustez si besoin
+}, 700)
 
-// ————— lifecycle —————
 onMounted(async () => {
-  // Import Leaflet en client-only
   const L = await import('leaflet')
   Lmod = L
 
-  // Installez le CSS dans nuxt.config.ts (css: ['leaflet/dist/leaflet.css'])
   map = Lmod.map('map', { attributionControl: true })
     .setView(props.initialCenter || [45.5, 6.5], props.initialZoom || 9)
 
@@ -60,14 +54,12 @@ onMounted(async () => {
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map)
 
-  // Canvas renderer = plus fluide que SVG quand il y a beaucoup de points
   canvasRenderer = Lmod.canvas({ padding: 0.4 })
   markersLayer = Lmod.layerGroup().addTo(map)
 
   map.on('moveend', emitBounds)
-  emitBounds() // première émission
+  emitBounds()
 
-  // premier rendu si des features sont déjà passées
   renderFeatures(props.features || [])
 })
 
@@ -78,40 +70,52 @@ onBeforeUnmount(() => {
   }
 })
 
-// ————— rendu markers —————
+// ---------- rendu ----------
 function renderFeatures(features: Feature[]) {
   if (!markersLayer || !Lmod) return
   markersLayer.clearLayers()
 
   for (const f of features) {
     const [lon, lat] = f.geometry.coordinates
-    // couleur via prop; défaut si absent
     const color = props.getColor ? props.getColor(f) : '#2563eb'
 
-    const m = Lmod.circleMarker([lat, lon], {
+    const marker = Lmod.circleMarker([lat, lon], {
       radius: 5,
       weight: 1,
       color,
       fillColor: color,
       fillOpacity: 0.9,
-      renderer: canvasRenderer
+      renderer: canvasRenderer,
+      bubblingMouseEvents: false
     })
 
-    // Popup simple (optionnel — Leaflet reste pratique pour dépanner)
+    // --- Infos pour tooltip ---
     const p: any = f.properties || {}
-    const alt = p?.coord?.alt ?? p?.altitude ?? null
+    const nom = p?.nom ?? 'Sans nom'
     const typeLabel = typeof p?.type === 'object'
       ? (p?.type?.nom ?? p?.type?.valeur ?? p?.type?.icone ?? '—')
       : (p?.type ?? '—')
-    const nom = p?.nom ?? 'Sans nom'
-    m.bindPopup(`<strong>${nom}</strong><br/>Type: ${typeLabel}${alt ? `<br/>Alt: ${alt} m` : ''}`)
+    const alt = p?.coord?.alt ?? null
+    const places = p?.places?.valeur ?? null
 
-    m.on('click', () => emit('markerClick', f))
-    m.addTo(markersLayer)
+    let tooltipHtml = `<strong>${nom}</strong><br/>${typeLabel}`
+    if (alt) tooltipHtml += ` · Alt. ${alt} m`
+    if (places && Number(places) > 0) tooltipHtml += ` · ${places} places`
+
+    marker.bindTooltip(tooltipHtml, {
+      direction: 'top',
+      offset: [0, -6],
+      sticky: true,
+      opacity: 0.95
+    })
+
+    // Click => panneau bas
+    marker.on('click', () => emit('markerClick', f))
+
+    marker.addTo(markersLayer)
   }
 }
 
-// Redessiner quand la prop features change
 watch(
   () => props.features,
   (val) => renderFeatures(val || []),
@@ -120,7 +124,6 @@ watch(
 </script>
 
 <template>
-  <!-- Le conteneur Leaflet -->
   <div id="map" class="w-full h-[70vh] rounded-xl overflow-hidden shadow" />
 </template>
 

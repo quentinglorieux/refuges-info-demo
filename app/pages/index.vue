@@ -33,8 +33,6 @@ const {
         </div>
 
         <div class="text-xs text-gray-600 pt-4 border-t space-y-1">
-          <div><strong>BBOX</strong> : {{ bbox || '—' }}</div>
-          <p v-if="loading">Chargement…</p>
           <p v-if="error" class="text-red-600">{{ error }}</p>
         </div>
       </aside>
